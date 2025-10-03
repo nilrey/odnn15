@@ -3,9 +3,11 @@ from ultralytics import YOLO
 import json
 import os
 
+PATH_MODELS = "models/"
+
 
 class YOLOv8PersonCarDetector:
-    def __init__(self, model_path='models/yolov8n.pt'):
+    def __init__(self, model_path=f'{PATH_MODELS}yolov8n.pt'):
         """Детектор для людей и машин"""
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Модель {model_path} не найдена")
