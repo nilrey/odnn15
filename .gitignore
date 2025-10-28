@@ -1,5 +1,4 @@
-﻿.venv
-venv
-data/input
-data/output
-models
+﻿.venv/*
+venv/*
+data/*
+models/*
