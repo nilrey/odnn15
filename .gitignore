@@ -1,4 +1,4 @@
 ﻿.venv/*
 venv/*
-data/*
+data/output/*
 models/*
