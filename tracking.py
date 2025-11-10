@@ -2,13 +2,13 @@ import cv2
 from ultralytics import YOLO
 from datetime import datetime
 
-MODEL_TAG = "yolov8x-pose"
+MODEL_TAG = "yolov8n"
 
 def main():
     model = YOLO(f'models/{MODEL_TAG}.pt')
     
 
-    video_path = 'data/input/metro_1.mp4'
+    video_path = 'data/input/cars_1.mp4'
     cap = cv2.VideoCapture(video_path)
     output_path = f'data/output/cars-output-{MODEL_TAG}-conf-05-001.mp4'
 
