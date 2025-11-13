@@ -1,12 +1,31 @@
 import cv2
 from ultralytics import YOLO
+from clearml import Task as ClearMLTask
+
+# configurable attributes
+VIDEO_PATH = 'data/input/car_1.mp4'
+CONFIDENCE = 0.7
 
 
 def main():
+    _task = ClearMLTask.init(project_name="odnn15", task_name="test Yolo v8 tracking")
+    # expose key run attributes in ClearML web UI (Parameters panel)
+    try:
+        _task.connect({
+            "video_path": VIDEO_PATH,
+            "confidence": CONFIDENCE,
+        })
+        # add helpful tags so the task is easier to find
+        try:
+            _task.add_tags(["yolov8", "tracking"])
+        except Exception:
+            pass
+    except Exception as e:
+        print("[clearml] Failed to register parameters/tags on Task:", e)
     model = YOLO('models/yolov8n.pt')
     
 
-    video_path = 'data/input/input_video.mp4'
+    video_path = VIDEO_PATH
     cap = cv2.VideoCapture(video_path)
     output_path = 'data/output/cars-yolov8n-track-001.mp4'
 
@@ -39,7 +58,7 @@ def main():
         if results[0].boxes.id is not None:
             for i, box in enumerate(results[0].boxes):
                 conf = box.conf[0]
-                if int(box.cls[0]) in allowed_indices and conf > 0.5: # 0.7
+                if int(box.cls[0]) in allowed_indices and conf > CONFIDENCE: # threshold configured
                     xyxy = box.xyxy[0]
                     conf = box.conf[0]
                     class_name = results[0].names[int(box.cls[0])]
