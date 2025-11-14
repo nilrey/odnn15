@@ -1,10 +1,17 @@
 import cv2
 from ultralytics import YOLO
 from datetime import datetime
+from clearml import Task, Dataset
+
 
 MODEL_TAG = "yolov8n"
 
 def main():
+
+    dataset = Dataset.create(
+        dataset_name="reference_dataset",
+        dataset_project="odnn15"
+    )    
     model = YOLO(f'models/{MODEL_TAG}.pt')
     
 
@@ -24,22 +31,12 @@ def main():
 
     allowed_indices = {0, 2, 3, 5, 6, 7, 8}  # Фильтрация классов автомобилей
 
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_width, frame_height))
-    
-    # frame_skip = 1  #Если значение=2, значит Пропускаем кадры (анализируем 1 из 3), если 0 - значит берем каждый кадр
-    # frame_count = 0  # Счетчик кадров
+    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_width, frame_height)) 
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
-            break
-        
-        # фильтр - считываем каждый n-ый кадр, frame_skip - указывает сколько фреймов пропускаем.
-        # frame_count += 1
-        # # Обрабатываем только каждый 3-й кадр
-        # if frame_count % frame_skip != 0:
-        #     out.write(frame)
-        #     continue
+            break 
 
         # Используем модель для анализа текущего кадра с отслеживанием
         results = model.track(frame, persist=True, imgsz=frame_width, iou=0.4) # 0.5
