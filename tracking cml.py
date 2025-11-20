@@ -4,19 +4,18 @@ from datetime import datetime
 from clearml import Task, Dataset, Logger
 
 
-MODEL_TAG = "yolov8n"
 
-def main():
+def main(model_name : str, input_file :str, output_file : str, confidence : float):
     # Инициализируем ClearML Task
     task = Task.init(
         project_name="odnn15",
-        task_name=f"car_tracking_{MODEL_TAG}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        task_name=f"car_tracking_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         task_type=Task.TaskTypes.inference
     )
     
     # Устанавливаем параметры задачи
-    task.set_parameter("model", MODEL_TAG)
-    task.set_parameter("confidence_threshold", 0.5)
+    task.set_parameter("model", model_name)
+    task.set_parameter("confidence_threshold", confidence)
     task.set_parameter("iou_threshold", 0.4)
     task.set_parameter("allowed_classes", [0, 2, 3, 5, 6, 7, 8])
     
@@ -24,12 +23,12 @@ def main():
         dataset_name="reference_dataset",
         dataset_project="odnn15"
     )    
-    model = YOLO(f'models/{MODEL_TAG}.pt')
+    model = YOLO(f'models/{model_name}.pt')
     
 
-    video_path = 'data/input/cars_1.mp4'
+    video_path = f'data/input/{input_file}'
     cap = cv2.VideoCapture(video_path)
-    output_path = f'data/output/cars-output-{MODEL_TAG}-conf-05-001.mp4'
+    output_path = f'data/output/{output_file}'
 
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -64,7 +63,7 @@ def main():
         if results[0].boxes.id is not None:
             for i, box in enumerate(results[0].boxes):
                 conf = box.conf[0]
-                if int(box.cls[0]) in allowed_indices and conf > 0.5: # 0.7
+                if int(box.cls[0]) in allowed_indices and conf > confidence: # 0.7
                     objects_in_frame += 1
                     xyxy = box.xyxy[0]
                     conf = box.conf[0]
@@ -129,7 +128,7 @@ def main():
         # Гистограмма распределения объектов
         Logger.current_logger().report_histogram(
             title="Object Detection Analysis",
-            series=f"Objects per Frame - {MODEL_TAG}",
+            series=f"Objects per Frame - {model_name}",
             values=object_counts,
             xaxis="Number of Objects",
             yaxis="Number of Frames"
@@ -139,7 +138,7 @@ def main():
         if frame_changes:
             Logger.current_logger().report_histogram(
                 title="Tracking Stability Analysis", 
-                series=f"Frame-to-Frame Changes - {MODEL_TAG}",
+                series=f"Frame-to-Frame Changes - {model_name}",
                 values=frame_changes,
                 xaxis="Objects Change Count", 
                 yaxis="Frequency"
@@ -163,6 +162,10 @@ def main():
         
 
 if __name__ == "__main__":
+    model_name = "yolov8n"
+    confidence = 0.5
+    input_name = "noise-gauss-cars_1-n0-b15"
+    output_name = f"out-{input_name}-conf-{confidence}"
     time_start = datetime.now()
-    main()
+    main(model_name, f"{input_name}.mp4", f"{output_name}.mp4", confidence)
     print(f'Время работы: {datetime.now() - time_start} сек.')
