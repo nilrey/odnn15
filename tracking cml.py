@@ -86,7 +86,6 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
             frame_changes.append(change)
         
         previous_count = objects_in_frame
-        frame_count += 1
 
         # Логируем количество объектов для текущего фрейма
         Logger.current_logger().report_scalar(
@@ -162,9 +161,9 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         
 
 if __name__ == "__main__":
-    model_name = "yolov8n"
+    model_name = "yolo12x"
     confidence = 0.5
-    input_name = "noise-gauss-cars_1-n0-b15"
+    input_name = "cars_1"
     output_name = f"out-{input_name}-conf-{confidence}"
     time_start = datetime.now()
     main(model_name, f"{input_name}.mp4", f"{output_name}.mp4", confidence)
