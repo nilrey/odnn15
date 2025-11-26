@@ -161,10 +161,10 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         
 
 if __name__ == "__main__":
-    model_name = "yolo12x"
+    model_name = "yolov8n"
     confidence = 0.5
     input_name = "cars_1"
-    output_name = f"out-{input_name}-conf-{confidence}"
+    output_name = f"out-{input_name}-{model_name}-conf-{confidence}-001"
     time_start = datetime.now()
     main(model_name, f"{input_name}.mp4", f"{output_name}.mp4", confidence)
     print(f'Время работы: {datetime.now() - time_start} сек.')
