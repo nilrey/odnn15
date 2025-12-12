@@ -1,23 +1,21 @@
 import cv2
 from ultralytics import YOLO
 from datetime import datetime
-from clearml import Task, Dataset
 
 
 MODEL_TAG = "yolov8n"
 
 def main():
 
-    dataset = Dataset.create(
-        dataset_name="reference_dataset",
-        dataset_project="odnn15"
-    )    
     model = YOLO(f'models/{MODEL_TAG}.pt')
+    confidence = 0.5
     
+    input_name = "cars_1_1"
+    output_name = f"out-{input_name}-{MODEL_TAG}-conf-{confidence}"
 
-    video_path = 'data/input/cars_1.mp4'
+    video_path = f'data/input/{input_name}.mp4'
     cap = cv2.VideoCapture(video_path)
-    output_path = f'data/output/cars-output-{MODEL_TAG}-conf-05-001.mp4'
+    output_path = f'data/output/{output_name}.mp4'
 
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -44,7 +42,7 @@ def main():
         if results[0].boxes.id is not None:
             for i, box in enumerate(results[0].boxes):
                 conf = box.conf[0]
-                if int(box.cls[0]) in allowed_indices and conf > 0.5: # 0.7
+                if int(box.cls[0]) in allowed_indices and conf > confidence: # 0.7
                     xyxy = box.xyxy[0]
                     conf = box.conf[0]
                     class_name = results[0].names[int(box.cls[0])]
