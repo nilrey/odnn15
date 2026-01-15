@@ -50,6 +50,9 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     frame_changes = []  # для анализа стабильности
     previous_count = 0
     
+    # Для отслеживания уникальных объектов
+    unique_object_ids = set()
+    
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -72,6 +75,9 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
                     # label = f'{class_name} {obj_id} ({conf:.2f})'
                     label = f'{class_name} {obj_id}'
 
+                    # Добавляем ID в множество уникальных объектов
+                    unique_object_ids.add(obj_id)
+
                     # Рисуем bounding box и ID на кадре
                     x1, y1, x2, y2 = map(int, xyxy)
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color_yellow, 1)
@@ -92,6 +98,14 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
             title="Object Detection Statistics",
             series="Objects per Frame",
             value=objects_in_frame,
+            iteration=frame_count
+        )
+        
+        # Логируем количество уникальных объектов на текущий момент
+        Logger.current_logger().report_scalar(
+            title="Tracking Statistics",
+            series="Unique Objects Tracked (Cumulative)",
+            value=len(unique_object_ids),
             iteration=frame_count
         )
         
@@ -120,7 +134,7 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         
         # Периодический вывод в консоль для отладки
         if frame_count % 30 == 0:  # Каждые 30 фреймов
-            print(f"Frame {frame_count}: {objects_in_frame} objects detected")
+            print(f"Frame {frame_count}: {objects_in_frame} objects detected, {len(unique_object_ids)} unique objects total")
 
     # После завершения видео - логируем PLOTS
     if object_counts:
@@ -147,6 +161,7 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     task.get_logger().report_single_value("Total Frames Processed", frame_count)
     task.get_logger().report_single_value("Total Objects Detected", total_objects_detected)
     task.get_logger().report_single_value("Average Objects per Frame", total_objects_detected / max(frame_count, 1))
+    task.get_logger().report_single_value("Unique Objects Tracked", len(unique_object_ids))
     
     # Загружаем обработанное видео как артефакт
     task.upload_artifact("processed_video", output_path)
@@ -157,6 +172,7 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     print(f"Обработанное видео с трекингом сохранено в {output_path}")
     print(f"Всего обработано фреймов: {frame_count}")
     print(f"Всего обнаружено объектов: {total_objects_detected}")
+    print(f"Уникальных объектов отслежено: {len(unique_object_ids)}")
 
         
 
