@@ -7,9 +7,16 @@ import cv2
 from ultralytics import YOLO
 
 
-MODEL_TAG = "yolov8n"
-EXPORT_FILENAME = "export_coco.json"
-
+MODEL_TAG = "yolo12x"
+INPUT_FILE_TAG = "spb_zagorodny_proezd_001"
+INPUT_FILENAME = f"{INPUT_FILE_TAG}.mp4"
+CONFIDENCE = 0.5
+DATE_STAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+MODEL_FILE_PATH = f"models/{MODEL_TAG}.pt"
+ANNOT_FILENAME = f"annotation_{INPUT_FILE_TAG}_{DATE_STAMP}.json"
+INPUT_VIDEO_FILE_PATH = f"data/input/{INPUT_FILENAME}"
+# OUTPUT_FILENAME = f"out-{INPUT_FILE_TAG}-{MODEL_TAG}-conf-{CONFIDENCE}_{DATE_STAMP}"
+# OUTPUT_VIDEO_FILE_PATH = f"data/output/{OUTPUT_FILENAME}.mp4"
 
 def _category_id(yolo_class_id: int) -> Optional[int]:
     """
@@ -24,19 +31,12 @@ def _category_id(yolo_class_id: int) -> Optional[int]:
 
 
 def main():
-    model = YOLO(f"models/{MODEL_TAG}.pt")
-    confidence = 0.5
-
-    input_name = "cars_1_2"
-    output_name = f"out-{input_name}-{MODEL_TAG}-conf-{confidence}"
-
-    video_path = f"data/input/{input_name}.mp4"
-    cap = cv2.VideoCapture(video_path)
+    model = YOLO(MODEL_FILE_PATH)
+    cap = cv2.VideoCapture(INPUT_VIDEO_FILE_PATH)
     if not cap.isOpened():
-        raise ValueError(f"Не удалось открыть видео: {video_path}")
+        raise ValueError(f"Не удалось открыть видео: {INPUT_FILENAME}")
 
-    output_video_path = f"data/output/{output_name}.mp4"
-    export_json_path = os.path.join("data", "output", EXPORT_FILENAME)
+    export_json_path = os.path.join("data", "output", ANNOT_FILENAME)
     os.makedirs("data/output", exist_ok=True)
 
     fps = int(cap.get(cv2.CAP_PROP_FPS))
@@ -48,12 +48,12 @@ def main():
 
     allowed_indices = {0, 2, 3, 5, 6, 7, 8}  # Фильтрация классов автомобилей
 
-    out = cv2.VideoWriter(
-        output_video_path,
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        (frame_width, frame_height),
-    )
+    # out = cv2.VideoWriter(
+    #     OUTPUT_VIDEO_FILE_PATH,
+    #     cv2.VideoWriter_fourcc(*"mp4v"),
+    #     fps,
+    #     (frame_width, frame_height),
+    # )
 
     # Заготовка COCO (копируем шапку из instances_default.json)
     coco_data = {
@@ -103,13 +103,13 @@ def main():
         print(f"{frame_id + 1}/{total_frames}: processing")
 
         # Используем модель для анализа текущего кадра с отслеживанием
-        results = model.track(frame, persist=True, imgsz=frame_width, iou=0.4, verbose=False)
+        results = model.track(frame, persist=True, iou=0.4, verbose=False)
 
         if results[0].boxes.id is not None:
             for i, box in enumerate(results[0].boxes):
                 conf = float(box.conf[0])
                 yolo_cls = int(box.cls[0])
-                if yolo_cls in allowed_indices and conf > confidence:
+                if yolo_cls in allowed_indices and conf > CONFIDENCE:
                     xyxy = box.xyxy[0].tolist()
                     x1, y1, x2, y2 = xyxy
                     width = x2 - x1
@@ -141,33 +141,33 @@ def main():
                     )
                     annotation_id += 1
 
-                    # Рисуем bounding box и ID на кадре
-                    x1_int, y1_int, x2_int, y2_int = map(int, (x1, y1, x2, y2))
-                    label = f"{results[0].names[yolo_cls]} {track_id}"
-                    cv2.rectangle(frame, (x1_int, y1_int), (x2_int, y2_int), color_yellow, 1)
-                    cv2.putText(
-                        frame,
-                        label,
-                        (x1_int, y1_int - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        color_yellow,
-                        1,
-                    )
+                    # # Рисуем bounding box и ID на кадре
+                    # x1_int, y1_int, x2_int, y2_int = map(int, (x1, y1, x2, y2))
+                    # label = f"{results[0].names[yolo_cls]} {track_id}"
+                    # cv2.rectangle(frame, (x1_int, y1_int), (x2_int, y2_int), color_yellow, 1)
+                    # cv2.putText(
+                    #     frame,
+                    #     label,
+                    #     (x1_int, y1_int - 10),
+                    #     cv2.FONT_HERSHEY_SIMPLEX,
+                    #     0.5,
+                    #     color_yellow,
+                    #     1,
+                    # )
 
         # Запись обработанного кадра в выходное видео
-        out.write(frame)
+        # out.write(frame)
         frame_id += 1
 
     cap.release()
-    out.release()
+    # out.release()
     cv2.destroyAllWindows()
 
     # Сохраняем COCO-аннотации
     with open(export_json_path, "w", encoding="utf-8") as f:
         json.dump(coco_data, f, ensure_ascii=False, indent=4)
 
-    print(f"Обработанное видео с трекингом сохранено в {output_video_path}")
+    # print(f"Обработанное видео с трекингом сохранено в {OUTPUT_VIDEO_FILE_PATH}")
     print(f"COCO-аннотации сохранены в {export_json_path}")
 
 

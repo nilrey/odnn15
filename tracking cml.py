@@ -8,8 +8,8 @@ from clearml import Task, Dataset, Logger
 def main(model_name : str, input_file :str, output_file : str, confidence : float):
     # Инициализируем ClearML Task
     task = Task.init(
-        project_name="odnn15",
-        task_name=f"car_tracking_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        project_name="ICIE Detection Project",
+        task_name=f"tracking_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         task_type=Task.TaskTypes.inference
     )
     
@@ -19,10 +19,10 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     task.set_parameter("iou_threshold", 0.4)
     task.set_parameter("allowed_classes", [0, 2, 3, 5, 6, 7, 8])
     
-    dataset = Dataset.create(
-        dataset_name="reference_dataset",
-        dataset_project="odnn15"
-    )    
+    # dataset = Dataset.create(
+    #     dataset_name="reference_dataset",
+    #     dataset_project="odnn15"
+    # )    
     model = YOLO(f'models/{model_name}.pt')
     
 
@@ -163,7 +163,7 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
 if __name__ == "__main__":
     model_name = "yolov8n"
     confidence = 0.5
-    input_name = "cars_1"
+    input_name = "cars_1_1"
     output_name = f"out-{input_name}-{model_name}-conf-{confidence}-001"
     time_start = datetime.now()
     main(model_name, f"{input_name}.mp4", f"{output_name}.mp4", confidence)
