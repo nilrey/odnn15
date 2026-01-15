@@ -4,8 +4,7 @@ from datetime import datetime
 from clearml import Task, Dataset, Logger
 
 
-
-def main(model_name : str, input_file :str, output_file : str, confidence : float):
+def main(model_name: str, input_file: str, output_file: str, confidence: float):
     # Инициализируем ClearML Task
     task = Task.init(
         project_name="ICIE Detection Project",
@@ -19,13 +18,8 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     task.set_parameter("iou_threshold", 0.4)
     task.set_parameter("allowed_classes", [0, 2, 3, 5, 6, 7, 8])
     
-    # dataset = Dataset.create(
-    #     dataset_name="reference_dataset",
-    #     dataset_project="odnn15"
-    # )    
     model = YOLO(f'models/{model_name}.pt')
     
-
     video_path = f'data/input/{input_file}'
     cap = cv2.VideoCapture(video_path)
     output_path = f'data/output/{output_file}'
@@ -38,7 +32,6 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     color_green = (0, 255, 0)
     color_red = (0, 0, 255)
     color_yellow = (0, 255, 255)
-
 
     allowed_indices = {0, 2, 3, 5, 6, 7, 8}  # Фильтрация классов автомобилей
 
@@ -54,30 +47,45 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     unique_object_ids = set()
     unique_objects_cumulative = []  # Для хранения нарастающего итога уникальных объектов
     
+    # Массив для подсчета объектов по диапазонам confidence
+    # Индексы: 0: 0.5-0.6, 1: 0.6-0.7, 2: 0.7-0.8, 3: 0.8-0.9, 4: 0.9-1.0
+    confidence_distribution = [0, 0, 0, 0, 0]
+    
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break 
 
         # Используем модель для анализа текущего кадра с отслеживанием
-        results = model.track(frame, persist=True, imgsz=frame_width, iou=0.4) # 0.5
+        results = model.track(frame, persist=True, imgsz=frame_width, iou=0.4)
 
         objects_in_frame = 0
         
         if results[0].boxes.id is not None:
             for i, box in enumerate(results[0].boxes):
                 conf = box.conf[0]
-                if int(box.cls[0]) in allowed_indices and conf > confidence: # 0.7
+                if int(box.cls[0]) in allowed_indices and conf > confidence:
                     objects_in_frame += 1
                     xyxy = box.xyxy[0]
                     conf = box.conf[0]
                     class_name = results[0].names[int(box.cls[0])]
                     obj_id = int(results[0].boxes.id[i])  # Получаем ID объекта
-                    # label = f'{class_name} {obj_id} ({conf:.2f})'
                     label = f'{class_name} {obj_id}'
 
                     # Добавляем ID в множество уникальных объектов
                     unique_object_ids.add(obj_id)
+
+                    # Подсчет объекта по диапазону confidence
+                    if 0.5 <= conf < 0.6:
+                        confidence_distribution[0] += 1
+                    elif 0.6 <= conf < 0.7:
+                        confidence_distribution[1] += 1
+                    elif 0.7 <= conf < 0.8:
+                        confidence_distribution[2] += 1
+                    elif 0.8 <= conf < 0.9:
+                        confidence_distribution[3] += 1
+                    elif 0.9 <= conf <= 1.0:
+                        confidence_distribution[4] += 1
 
                     # Рисуем bounding box и ID на кадре
                     x1, y1, x2, y2 = map(int, xyxy)
@@ -138,7 +146,7 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         
         # Периодический вывод в консоль для отладки
         if frame_count % 30 == 0:  # Каждые 30 фреймов
-            print(f"Фрейм {frame_count}: найдено = {objects_in_frame} , всего уникальных = {len(unique_object_ids)} ")
+            print(f"Фрейм {frame_count}: найдено = {objects_in_frame}, всего уникальных = {len(unique_object_ids)}")
 
     # После завершения видео - логируем PLOTS
     if object_counts:
@@ -150,14 +158,15 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
             xaxis="Количество объектов",
             yaxis="Номер фрейма"
         )
+        
         # Гистограмма уникальных объектов
         if unique_objects_cumulative:
             Logger.current_logger().report_histogram(
-                title="Трекирование обектов",
-                series=f"Трекируемые обекты - {model_name}",
+                title="Трекирование объектов",
+                series=f"Трекируемые объекты - {model_name}",
                 values=unique_objects_cumulative,
                 xaxis="Номер фрейма",
-                yaxis="Трекируемые обекты"
+                yaxis="Трекируемые объекты"
             )
         
         # Гистограмма стабильности трекинга
@@ -169,7 +178,31 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
                 xaxis="Изменения в количестве объектов", 
                 yaxis="Частота"
             )
-        
+    
+    # Создаем график распределения confidence
+    confidence_labels = ["0,5-0,6", "0,6-0,7", "0,7-0,8", "0,8-0,9", "0,9-1"]
+    
+    # Логируем распределение confidence
+    Logger.current_logger().report_histogram(
+        title="Распределение объектов по уровням confidence",
+        series=f"Распределение confidence - {model_name}",
+        iteration=0,
+        xlabels=confidence_labels,
+        values=confidence_distribution,
+        yaxis="Количество объектов",
+        xaxis="Диапазоны confidence"
+    )
+    
+    # Также можно логировать как гистограмму
+    # Logger.current_logger().report_histogram(
+    #     title="Распределение confidence",
+    #     series=f"Распределение объектов по confidence - {model_name}",
+    #     values=[confidence_distribution],
+    #     iteration=0,
+    #     xaxis="Диапазоны confidence",
+    #     yaxis="Количество объектов",
+    #     labels=confidence_labels
+    # )
 
     # Сохраняем итоговую статистику
     task.get_logger().report_single_value("Всего фреймов", frame_count)
@@ -177,18 +210,26 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     task.get_logger().report_single_value("Всреднем объектов на фрейм", total_objects_detected / max(frame_count, 1))
     task.get_logger().report_single_value("Трекируемых объектов", len(unique_object_ids))
     
+    # Логируем распределение confidence по диапазонам
+    for i, label in enumerate(confidence_labels):
+        task.get_logger().report_single_value(f"Объекты в диапазоне {label}", confidence_distribution[i])
+    
     # Загружаем обработанное видео как артефакт
     task.upload_artifact("processed_video", output_path)
     
     cap.release()
     out.release()
     cv2.destroyAllWindows()
-    print(f"Обработанное видео с трекингом сохранено в {output_path}")
+    
+    # Выводим статистику по confidence
+    print("\nРаспределение объектов по confidence:")
+    for i, label in enumerate(confidence_labels):
+        print(f"{label}: {confidence_distribution[i]} объектов ({confidence_distribution[i]/max(total_objects_detected, 1)*100:.2f}%)")
+    
+    print(f"\nОбработанное видео с трекингом сохранено в {output_path}")
     print(f"Всего обработано фреймов: {frame_count}")
     print(f"Всего обнаружено объектов: {total_objects_detected}")
     print(f"Уникальных объектов отслежено: {len(unique_object_ids)}")
-
-        
 
 if __name__ == "__main__":
     model_name = "yolov8n"
