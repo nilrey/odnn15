@@ -52,6 +52,7 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
     
     # Для отслеживания уникальных объектов
     unique_object_ids = set()
+    unique_objects_cumulative = []  # Для хранения нарастающего итога уникальных объектов
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -86,6 +87,9 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         # Сохраняем для гистограммы
         object_counts.append(objects_in_frame)
         
+        # Сохраняем нарастающий итог уникальных объектов
+        unique_objects_cumulative.append(len(unique_object_ids))
+        
         # Анализ изменений между фреймами
         if frame_count > 0:
             change = abs(objects_in_frame - previous_count)
@@ -95,16 +99,16 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
 
         # Логируем количество объектов для текущего фрейма
         Logger.current_logger().report_scalar(
-            title="Object Detection Statistics",
-            series="Objects per Frame",
+            title="Статистика обнаружения объектов",
+            series="Объектов на фрейме",
             value=objects_in_frame,
             iteration=frame_count
         )
         
         # Логируем количество уникальных объектов на текущий момент
         Logger.current_logger().report_scalar(
-            title="Tracking Statistics",
-            series="Unique Objects Tracked (Cumulative)",
+            title="Трекируемые объекты",
+            series="Трекируемые объекты (суммарно)",
             value=len(unique_object_ids),
             iteration=frame_count
         )
@@ -112,8 +116,8 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         # Логируем накопленную статистику
         total_objects_detected += objects_in_frame
         Logger.current_logger().report_scalar(
-            title="Object Detection Statistics", 
-            series="Total Objects Detected",
+            title="Статистика обнаружения объектов", 
+            series="Общее количество обнаруженных объектов",
             value=total_objects_detected,
             iteration=frame_count
         )
@@ -122,8 +126,8 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         if frame_count > 0:
             avg_objects = total_objects_detected / (frame_count + 1)
             Logger.current_logger().report_scalar(
-                title="Object Detection Statistics",
-                series="Average Objects per Frame",
+                title="Статистика обнаружения объектов",
+                series="Среднее количество объектов в кадре",
                 value=avg_objects,
                 iteration=frame_count
             )
@@ -134,34 +138,44 @@ def main(model_name : str, input_file :str, output_file : str, confidence : floa
         
         # Периодический вывод в консоль для отладки
         if frame_count % 30 == 0:  # Каждые 30 фреймов
-            print(f"Frame {frame_count}: {objects_in_frame} objects detected, {len(unique_object_ids)} unique objects total")
+            print(f"Фрейм {frame_count}: найдено = {objects_in_frame} , всего уникальных = {len(unique_object_ids)} ")
 
     # После завершения видео - логируем PLOTS
     if object_counts:
-        # Гистограмма распределения объектов
+        # Гистограмма распределения объектов на кадре
         Logger.current_logger().report_histogram(
-            title="Object Detection Analysis",
-            series=f"Objects per Frame - {model_name}",
+            title="Распознанные объекты",
+            series=f"Количество объектов на фрейме - {model_name}",
             values=object_counts,
-            xaxis="Number of Objects",
-            yaxis="Number of Frames"
+            xaxis="Количество объектов",
+            yaxis="Номер фрейма"
         )
+        # Гистограмма уникальных объектов
+        if unique_objects_cumulative:
+            Logger.current_logger().report_histogram(
+                title="Трекирование обектов",
+                series=f"Трекируемые обекты - {model_name}",
+                values=unique_objects_cumulative,
+                xaxis="Номер фрейма",
+                yaxis="Трекируемые обекты"
+            )
         
         # Гистограмма стабильности трекинга
         if frame_changes:
             Logger.current_logger().report_histogram(
-                title="Tracking Stability Analysis", 
-                series=f"Frame-to-Frame Changes - {model_name}",
+                title="Анализ стабильности трекинга", 
+                series=f"Изменения между фреймами - {model_name}",
                 values=frame_changes,
-                xaxis="Objects Change Count", 
-                yaxis="Frequency"
+                xaxis="Изменения в количестве объектов", 
+                yaxis="Частота"
             )
+        
 
     # Сохраняем итоговую статистику
-    task.get_logger().report_single_value("Total Frames Processed", frame_count)
-    task.get_logger().report_single_value("Total Objects Detected", total_objects_detected)
-    task.get_logger().report_single_value("Average Objects per Frame", total_objects_detected / max(frame_count, 1))
-    task.get_logger().report_single_value("Unique Objects Tracked", len(unique_object_ids))
+    task.get_logger().report_single_value("Всего фреймов", frame_count)
+    task.get_logger().report_single_value("Всего объектов на всех фреймах", total_objects_detected)
+    task.get_logger().report_single_value("Всреднем объектов на фрейм", total_objects_detected / max(frame_count, 1))
+    task.get_logger().report_single_value("Трекируемых объектов", len(unique_object_ids))
     
     # Загружаем обработанное видео как артефакт
     task.upload_artifact("processed_video", output_path)
