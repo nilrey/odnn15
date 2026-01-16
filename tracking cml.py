@@ -4,25 +4,27 @@ from datetime import datetime
 from clearml import Task, Dataset, Logger
 
 
-def main(model_name: str, input_file: str, output_file: str, confidence: float):
+def main(model_name: str, input_file: str, output_file: str, confidence: float, date_stamp: datetime):
     # Инициализируем ClearML Task
     task = Task.init(
         project_name="ICIE Detection Project",
-        task_name=f"tracking_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        task_name=f"tracking_{model_name}_{date_stamp}",
         task_type=Task.TaskTypes.inference
     )
     
+    model = YOLO(f'models/{model_name}.pt')
+    video_path = f'data/input/{input_file}'
+    output_path = f'data/output/{output_file}'
+
     # Устанавливаем параметры задачи
     task.set_parameter("model", model_name)
     task.set_parameter("confidence_threshold", confidence)
     task.set_parameter("iou_threshold", 0.4)
     task.set_parameter("allowed_classes", [0, 2, 3, 5, 6, 7, 8])
+    task.set_parameter("input_video", video_path)
+    task.set_parameter("output_video", output_path)
     
-    model = YOLO(f'models/{model_name}.pt')
-    
-    video_path = f'data/input/{input_file}'
     cap = cv2.VideoCapture(video_path)
-    output_path = f'data/output/{output_file}'
 
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -179,8 +181,8 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float):
                 yaxis="Частота"
             )
     
-    # Создаем график распределения confidence
-    confidence_labels = ["0,5-0,6", "0,6-0,7", "0,7-0,8", "0,8-0,9", "0,9-1"]
+    # Lables к колонкам для графика распределения confidence
+    confidence_labels = ["0,5 - 0,6", "0,6 - 0,7", "0,7 - 0,8", "0,8 - 0,9", "0,9 - 1.0"]
     
     # Логируем распределение confidence
     Logger.current_logger().report_histogram(
@@ -210,9 +212,9 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float):
     task.get_logger().report_single_value("Всреднем объектов на фрейм", total_objects_detected / max(frame_count, 1))
     task.get_logger().report_single_value("Трекируемых объектов", len(unique_object_ids))
     
-    # Логируем распределение confidence по диапазонам
-    for i, label in enumerate(confidence_labels):
-        task.get_logger().report_single_value(f"Объекты в диапазоне {label}", confidence_distribution[i])
+    # # Логируем распределение confidence по диапазонам
+    # for i, label in enumerate(confidence_labels):
+    #     task.get_logger().report_single_value(f"Объекты в диапазоне {label}", confidence_distribution[i])
     
     # Загружаем обработанное видео как артефакт
     task.upload_artifact("processed_video", output_path)
@@ -221,21 +223,25 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float):
     out.release()
     cv2.destroyAllWindows()
     
-    # Выводим статистику по confidence
-    print("\nРаспределение объектов по confidence:")
-    for i, label in enumerate(confidence_labels):
-        print(f"{label}: {confidence_distribution[i]} объектов ({confidence_distribution[i]/max(total_objects_detected, 1)*100:.2f}%)")
+    # # Выводим статистику по confidence
+    # print("\nРаспределение объектов по confidence:")
+    # for i, label in enumerate(confidence_labels):
+    #     print(f"{label}: {confidence_distribution[i]} объектов ({confidence_distribution[i]/max(total_objects_detected, 1)*100:.2f}%)")
     
     print(f"\nОбработанное видео с трекингом сохранено в {output_path}")
     print(f"Всего обработано фреймов: {frame_count}")
     print(f"Всего обнаружено объектов: {total_objects_detected}")
     print(f"Уникальных объектов отслежено: {len(unique_object_ids)}")
 
+    task.close()
+
 if __name__ == "__main__":
     model_name = "yolov8n"
     confidence = 0.5
-    input_name = "cars_1_1"
-    output_name = f"out-{input_name}-{model_name}-conf-{confidence}-001"
-    time_start = datetime.now()
-    main(model_name, f"{input_name}.mp4", f"{output_name}.mp4", confidence)
-    print(f'Время работы: {datetime.now() - time_start} сек.')
+    input_names = ["cars_1_1"] #["spb_dvorzovy_most_001", "spb_gostiny_dvor_001", "spb_gostiny_dvor_002", "spb_nevsky_annichkov_most_001", "spb_nevsky_annichkov_most_002", "spb_zagorodny_proezd_001"]
+    for input_name in input_names:
+        time_start = datetime.now()
+        date_stamp = time_start.strftime("%Y-%m-%d_%H-%M-%S")
+        output_name = f"out-{input_name}-{model_name}-conf-{confidence}_{date_stamp}"
+        main(model_name, f"{input_name}.mp4", f"{output_name}.mp4", confidence, date_stamp)
+        print(f'Время работы: {datetime.now() - time_start} сек.')
