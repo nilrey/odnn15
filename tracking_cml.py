@@ -13,7 +13,7 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
     )
     
     model = YOLO(f'models/{model_name}.pt')
-    video_path = f'data/input/{input_file}'
+    video_path = f'data/input/corrupted/{input_file}'
     output_path = f'data/output/{output_file}'
 
     # Устанавливаем параметры задачи
@@ -23,6 +23,8 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
     task.set_parameter("allowed_classes", [0, 2, 3, 5, 6, 7, 8])
     task.set_parameter("input_video", video_path)
     task.set_parameter("output_video", output_path)
+
+    # cloned_task.set_user_properties(model="yolov8s")
     
     cap = cv2.VideoCapture(video_path)
 
@@ -236,9 +238,22 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
     task.close()
 
 if __name__ == "__main__":
-    model_name = "yolov8n"
+    model_name = "yolo12x"
     confidence = 0.5
-    input_names = ["cars_1_1"] #["spb_dvorzovy_most_001", "spb_gostiny_dvor_001", "spb_gostiny_dvor_002", "spb_nevsky_annichkov_most_001", "spb_nevsky_annichkov_most_002", "spb_zagorodny_proezd_001"]
+    # input_names = ["spb_dvorzovy_most_001", "spb_gostiny_dvor_001", "spb_gostiny_dvor_002", "spb_nevsky_annichkov_most_001", "spb_nevsky_annichkov_most_002", "spb_zagorodny_proezd_001"]
+    input_names = ["out-corrupt-spb_gostiny_dvor_001-brightness-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-contrast-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-defocus_blur-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-gaussian_noise-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-impulse_noise-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-jpeg_compression-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-motion_blur-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-saturate-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-shot_noise-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-spatter-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-speckle_noise-s5",
+                   "out-corrupt-spb_gostiny_dvor_001-zoom_blur-s5"
+                   ]
     for input_name in input_names:
         time_start = datetime.now()
         date_stamp = time_start.strftime("%Y-%m-%d_%H-%M-%S")
