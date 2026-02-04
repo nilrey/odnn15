@@ -1,36 +1,56 @@
 import cv2
+import math
 from ultralytics import YOLO
 from datetime import datetime
 from clearml import Task, Dataset, Logger
 
 
-def main(model_name: str, input_file: str, output_file: str, confidence: float, date_stamp: datetime):
+def main(cml_project_name: str, cml_task_name: str,
+        model_name: str, input_file: str, output_file: str, confidence: float, date_stamp: datetime):
     # Инициализируем ClearML Task
     task = Task.init(
-        project_name="ICIE Detection Project",
-        task_name=f"tracking_{model_name}_{date_stamp}",
+        project_name=cml_project_name,
+        task_name=cml_task_name,
         task_type=Task.TaskTypes.inference
     )
     
     model = YOLO(f'models/{model_name}.pt')
-    video_path = f'data/input/corrupted/{input_file}'
+    video_path = f'data/input/{input_file}'
     output_path = f'data/output/{output_file}'
 
     # Устанавливаем параметры задачи
     task.set_parameter("model", model_name)
+    task.set_parameter("input_video", video_path)
+    task.set_parameter("output_video", output_path)
     task.set_parameter("confidence_threshold", confidence)
     task.set_parameter("iou_threshold", 0.4)
     task.set_parameter("allowed_classes", [0, 2, 3, 5, 6, 7, 8])
-    task.set_parameter("input_video", video_path)
-    task.set_parameter("output_video", output_path)
 
-    # cloned_task.set_user_properties(model="yolov8s")
-    
     cap = cv2.VideoCapture(video_path)
 
+    if not cap.isOpened():
+        print(f"Ошибка: Не удалось открыть видеофайл {video_path}")
+        task.close()
+        return
+
+    # Получаем ИСХОДНЫЕ параметры видео для записи
     fps = int(cap.get(cv2.CAP_PROP_FPS))
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Вычисляем размер для модели (кратный 32)
+    # YOLO обычно использует высоту как основной параметр
+    model_size = 32 * math.ceil(orig_height / 32)
+    
+    # Для записи видео используем ИСХОДНЫЕ размеры
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (orig_width, orig_height))
+    
+    if not out.isOpened():
+        print(f"Ошибка: Не удалось создать VideoWriter для {output_path}")
+        cap.release()
+        task.close()
+        return
 
     color_blue = (255, 0, 0)
     color_green = (0, 255, 0)
@@ -39,8 +59,7 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
 
     allowed_indices = {0, 2, 3, 5, 6, 7, 8}  # Фильтрация классов автомобилей
 
-    out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_width, frame_height)) 
-
+    frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_count = 0
     total_objects_detected = 0
     object_counts = []  # для гистограммы
@@ -60,8 +79,12 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
         if not ret:
             break 
 
+        # Сохраняем оригинальный кадр для записи
+        orig_frame = frame.copy()
+
         # Используем модель для анализа текущего кадра с отслеживанием
-        results = model.track(frame, persist=True, imgsz=frame_width, iou=0.4)
+        # Используем вычисленный размер, кратный 32
+        results = model.track(frame, persist=True, imgsz=model_size, iou=0.4, verbose=False)
 
         objects_in_frame = 0
         
@@ -91,10 +114,10 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
                     elif 0.9 <= conf <= 1.0:
                         confidence_distribution[4] += 1
 
-                    # Рисуем bounding box и ID на кадре
+                    # Рисуем bounding box и ID на оригинальном кадре
                     x1, y1, x2, y2 = map(int, xyxy)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color_yellow, 1)
-                    cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_yellow, 1)
+                    cv2.rectangle(orig_frame, (x1, y1), (x2, y2), color_yellow, 1)
+                    cv2.putText(orig_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_yellow, 1)
 
         # Сохраняем для гистограммы
         object_counts.append(objects_in_frame)
@@ -145,12 +168,17 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
             )
 
         # Запись обработанного кадра в выходное видео
-        out.write(frame)
+        # Используем оригинальный кадр с аннотациями (без изменения размера)
+        out.write(orig_frame)
         frame_count += 1
         
         # Периодический вывод в консоль для отладки
-        if frame_count % 30 == 0:  # Каждые 30 фреймов
-            print(f"Фрейм {frame_count}: найдено = {objects_in_frame}, всего уникальных = {len(unique_object_ids)}")
+        if frame_count % 10 == 0:  # Каждые 30 фреймов
+            print(f"Фрейм {frame_count} из {frames} ")
+    
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
 
     # После завершения видео - логируем PLOTS
     if object_counts:
@@ -196,39 +224,25 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
         yaxis="Количество объектов",
         xaxis="Диапазоны confidence"
     )
-    
-    # Также можно логировать как гистограмму
-    # Logger.current_logger().report_histogram(
-    #     title="Распределение confidence",
-    #     series=f"Распределение объектов по confidence - {model_name}",
-    #     values=[confidence_distribution],
-    #     iteration=0,
-    #     xaxis="Диапазоны confidence",
-    #     yaxis="Количество объектов",
-    #     labels=confidence_labels
-    # )
 
     # Сохраняем итоговую статистику
-    task.get_logger().report_single_value("Всего фреймов", frame_count)
+    # task.get_logger().report_single_value("Всего фреймов", frame_count)
     task.get_logger().report_single_value("Всего объектов на всех фреймах", total_objects_detected)
-    task.get_logger().report_single_value("Всреднем объектов на фрейм", total_objects_detected / max(frame_count, 1))
+    # task.get_logger().report_single_value("Среднее объектов на фрейм", total_objects_detected / max(frame_count, 1))
     task.get_logger().report_single_value("Трекируемых объектов", len(unique_object_ids))
     
-    # # Логируем распределение confidence по диапазонам
-    # for i, label in enumerate(confidence_labels):
-    #     task.get_logger().report_single_value(f"Объекты в диапазоне {label}", confidence_distribution[i])
+    # Логируем распределение confidence по диапазонам
+    for i, label in enumerate(confidence_labels):
+        task.get_logger().report_single_value(f"Объекты в диапазоне {label}", confidence_distribution[i])
     
     # Загружаем обработанное видео как артефакт
     task.upload_artifact("processed_video", output_path)
     
-    cap.release()
-    out.release()
-    cv2.destroyAllWindows()
-    
-    # # Выводим статистику по confidence
-    # print("\nРаспределение объектов по confidence:")
-    # for i, label in enumerate(confidence_labels):
-    #     print(f"{label}: {confidence_distribution[i]} объектов ({confidence_distribution[i]/max(total_objects_detected, 1)*100:.2f}%)")
+    # Выводим статистику по confidence
+    print("\nРаспределение объектов по confidence:")
+    for i, label in enumerate(confidence_labels):
+        percent = (confidence_distribution[i]/max(total_objects_detected, 1)*100)
+        print(f"{label}: {confidence_distribution[i]} объектов ({percent:.2f}%)")
     
     print(f"\nОбработанное видео с трекингом сохранено в {output_path}")
     print(f"Всего обработано фреймов: {frame_count}")
@@ -238,25 +252,51 @@ def main(model_name: str, input_file: str, output_file: str, confidence: float, 
     task.close()
 
 if __name__ == "__main__":
-    model_name = "yolo12x"
+    cml_project_name = "ICIE Detection Project"
+    cml_project_name = "TEST Detection Project"
+    model_name = "yolov8n"
     confidence = 0.5
+    # input_names = [ 
+    #     "out-corrupt-spb_zagorodny_proezd_001-brightness-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-zoom_blur-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-defocus_blur-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-gaussian_noise-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-impulse_noise-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-jpeg_compression-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-saturate-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-shot_noise-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-spatter-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-speckle_noise-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-motion_blur-s5",
+    #     "out-corrupt-spb_zagorodny_proezd_001-contrast-s5"        
+    # ]
     # input_names = ["spb_dvorzovy_most_001", "spb_gostiny_dvor_001", "spb_gostiny_dvor_002", "spb_nevsky_annichkov_most_001", "spb_nevsky_annichkov_most_002", "spb_zagorodny_proezd_001"]
-    input_names = ["out-corrupt-spb_gostiny_dvor_001-brightness-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-contrast-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-defocus_blur-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-gaussian_noise-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-impulse_noise-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-jpeg_compression-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-motion_blur-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-saturate-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-shot_noise-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-spatter-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-speckle_noise-s5",
-                   "out-corrupt-spb_gostiny_dvor_001-zoom_blur-s5"
-                   ]
+    input_names = ["spb_zagorodny_proezd_001"]
+    
+    tag_name = "spb_zagorodny_proezd_001"
+    corruption_types = ["brightness", "zoom_blur", "defocus_blur", "gaussian_noise", 
+                       "impulse_noise", "jpeg_compression", "saturate", "shot_noise", 
+                       "spatter", "speckle_noise", "motion_blur", "contrast"]
+    
     for input_name in input_names:
         time_start = datetime.now()
         date_stamp = time_start.strftime("%Y-%m-%d_%H-%M-%S")
         output_name = f"out-{input_name}-{model_name}-conf-{confidence}_{date_stamp}"
-        main(model_name, f"{input_name}.mp4", f"{output_name}.mp4", confidence, date_stamp)
+        
+        # Извлекаем corruption_type из имени файла
+        for corruption_type in corruption_types:
+            if corruption_type in input_name:
+                cml_task_name = f"{tag_name}-{corruption_type}"
+                break
+        else:
+            cml_task_name = f"{tag_name}-original"
+        
+        main(cml_project_name, 
+             cml_task_name, 
+             model_name, 
+             f"{input_name}.mp4", 
+             f"{output_name}.mp4", 
+             confidence, 
+             date_stamp
+             )
         print(f'Время работы: {datetime.now() - time_start} сек.')

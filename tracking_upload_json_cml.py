@@ -77,7 +77,7 @@ def main(json_file_path: str, date_stamp: datetime):
         
         # Логируем количество объектов для текущего фрейма
         Logger.current_logger().report_scalar(
-            title="Аннотации - объекты на фрейме",
+            title="Статистика обнаружения объектов",
             series="Объектов на фрейме",
             value=objects_in_frame,
             iteration=frame_id
@@ -85,7 +85,7 @@ def main(json_file_path: str, date_stamp: datetime):
         
         # Логируем количество уникальных треков на текущий момент
         Logger.current_logger().report_scalar(
-            title="Аннотации - трекируемые объекты",
+            title="Трекируемые объекты",
             series="Трекируемые объекты (суммарно)",
             value=len(unique_track_ids),
             iteration=frame_id
@@ -144,13 +144,12 @@ def main(json_file_path: str, date_stamp: datetime):
             yaxis="Количество объектов",
             xaxis="Категории"
         )
-
     
     # Сохраняем итоговую статистику
-    task.get_logger().report_single_value("Всего фреймов", total_frames)
-    task.get_logger().report_single_value("Всего объектов", total_objects)
-    task.get_logger().report_single_value("Уникальных треков", len(unique_track_ids))
-    task.get_logger().report_single_value("В среднем объектов на фрейм", avg_objects_per_frame)
+    # task.get_logger().report_single_value("Всего фреймов", total_frames)
+    task.get_logger().report_single_value("Всего объектов на всех фреймах", total_objects)
+    task.get_logger().report_single_value("Трекируемых объектов", len(unique_track_ids))
+    # task.get_logger().report_single_value("В среднем объектов на фрейм", avg_objects_per_frame)
     
     # Статистика по категориям
     for cat_id, cat_info in category_distribution.items():
@@ -185,7 +184,7 @@ def main(json_file_path: str, date_stamp: datetime):
 
 
 if __name__ == "__main__":
-    # Укажите путь к вашему JSON файлу
+
     json_file_path = "data/input/annotation_gostinny_dvor_001_completed.json"
     
     time_start = datetime.now()
