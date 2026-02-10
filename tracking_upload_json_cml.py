@@ -1,4 +1,6 @@
+import os
 import json
+from pathlib import Path
 from datetime import datetime
 from clearml import Task, Logger
 
@@ -26,20 +28,19 @@ def load_annotations(json_path: str):
     return annotations_dict, data['categories']
 
 
-def main(json_file_path: str, date_stamp: datetime):
+def main(cml_project_name: str, cml_task_name: str, input_file: str):
     # Инициализируем ClearML Task
     task = Task.init(
-        project_name="ICIE Detection Project",
-        task_name=f"annotation_stats_{date_stamp}",
+        project_name=cml_project_name,
+        task_name=cml_task_name,
         task_type=Task.TaskTypes.inference
     )
     
-    print(f"Загрузка аннотаций из {json_file_path}")
-    annotations, categories = load_annotations(json_file_path)
+    print(f"Загрузка аннотаций из {input_file}")
+    annotations, categories = load_annotations(input_file)
     print(f"Загружено аннотаций для {len(annotations)} изображений")
     
-    # Логируем информацию о категориях
-    task.set_parameter("annotations_file", json_file_path)
+    task.set_parameter("annotations_file", input_file)
     task.set_parameter("total_images", len(annotations))
     
     # Подготовим статистику
@@ -100,15 +101,14 @@ def main(json_file_path: str, date_stamp: datetime):
     total_frames = len(frame_counts)
     avg_objects_per_frame = total_objects / total_frames if total_frames > 0 else 0
     
-    print(f"\nОбщая статистика по аннотациям:")
-    print(f"Всего фреймов: {total_frames}")
-    print(f"Всего объектов: {total_objects}")
-    print(f"Уникальных треков: {len(unique_track_ids)}")
-    print(f"В среднем объектов на фрейм: {avg_objects_per_frame:.2f}")
+    task.set_parameter("Всего фреймов", total_frames)
+    task.set_parameter("Всего объектов", total_objects)
+    task.set_parameter("Уникальных треков", len(unique_track_ids))
+    task.set_parameter("В среднем объектов на фрейм", avg_objects_per_frame:.2f)
     
     # Логируем гистограмму объектов на фрейм
     Logger.current_logger().report_histogram(
-        title="Аннотации - распределение объектов",
+        title="Распределение объектов",
         series="Количество объектов на фрейме",
         values=objects_per_frame,
         xaxis="Количество объектов",
@@ -117,7 +117,7 @@ def main(json_file_path: str, date_stamp: datetime):
     
     # Логируем гистограмму уникальных треков
     Logger.current_logger().report_histogram(
-        title="Аннотации - трекирование объектов",
+        title="Трекирование объектов",
         series="Трекируемые объекты",
         values=unique_tracks_cumulative,
         xaxis="Номер фрейма",
@@ -146,7 +146,7 @@ def main(json_file_path: str, date_stamp: datetime):
         )
     
     # Сохраняем итоговую статистику
-    # task.get_logger().report_single_value("Всего фреймов", total_frames)
+    task.get_logger().report_single_value("Всего фреймов", total_frames)
     task.get_logger().report_single_value("Всего объектов на всех фреймах", total_objects)
     task.get_logger().report_single_value("Трекируемых объектов", len(unique_track_ids))
     # task.get_logger().report_single_value("В среднем объектов на фрейм", avg_objects_per_frame)
@@ -160,36 +160,27 @@ def main(json_file_path: str, date_stamp: datetime):
             )
     
     # Загружаем файл аннотаций как артефакт
-    task.upload_artifact("annotations_file", json_file_path)
-    
-    # Логируем сводную информацию в виде текста
-    summary_text = f"""
-    Сводная информация по аннотациям:
-    - Всего фреймов: {total_frames}
-    - Всего объектов: {total_objects}
-    - Уникальных треков: {len(unique_track_ids)}
-    - В среднем объектов на фрейм: {avg_objects_per_frame:.2f}
-    
-    Распределение по категориям:
-    """
-    
-    for cat_id, cat_info in category_distribution.items():
-        if cat_info['count'] > 0:
-            summary_text += f"- {cat_info['name']}: {cat_info['count']} объектов\n"
-    
-    task.get_logger().report_text(summary_text)
+    task.upload_artifact("annotations_file", input_file)
     
     print(f"\nСтатистика успешно загружена в ClearML")
     task.close()
 
 
 if __name__ == "__main__":
+    current_file = Path(__file__).resolve()
+    path_input = current_file.parent.parent / "data" / "input" / "annotations"
+    # файлы из папки 
+    all_files = os.listdir(path_input)
+    # убираем расширение из имен
+    fnames = [os.path.splitext(f)[0] for f in all_files if f.endswith('.json')]
 
-    json_file_path = "data/input/annotation_gostinny_dvor_001_completed.json"
-    
-    time_start = datetime.now()
-    date_stamp = time_start.strftime("%Y-%m-%d_%H-%M-%S")
-    
-    main(json_file_path, date_stamp)
-    
-    print(f'\nВремя обработки: {datetime.now() - time_start} сек.')
+    for fname in fnames:
+        cml_project_name = "Результаты разметки эксперта"
+        cml_task_name = fname
+        model_name = "yolo12x"
+        input_name = f"{path_input}/{fname}.json"
+        time_start = datetime.now()
+        
+        main(cml_project_name, cml_task_name, input_name )
+        
+        print(f'\nВремя обработки: {datetime.now() - time_start} сек.')

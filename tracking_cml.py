@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 import cv2
 import math
 from ultralytics import YOLO
@@ -6,7 +8,7 @@ from clearml import Task, Dataset, Logger
 
 
 def main(cml_project_name: str, cml_task_name: str,
-        model_name: str, input_file: str, output_file: str, confidence: float, date_stamp: datetime):
+        model_name: str, input_video: str, output_video: str, confidence: float, date_stamp: datetime):
     # Инициализируем ClearML Task
     task = Task.init(
         project_name=cml_project_name,
@@ -15,21 +17,18 @@ def main(cml_project_name: str, cml_task_name: str,
     )
     
     model = YOLO(f'models/{model_name}.pt')
-    video_path = f'data/input/{input_file}'
-    output_path = f'data/output/{output_file}'
 
     # Устанавливаем параметры задачи
     task.set_parameter("model", model_name)
-    task.set_parameter("input_video", video_path)
-    task.set_parameter("output_video", output_path)
+    task.set_parameter("input_video", input_video)
+    task.set_parameter("output_video", output_video)
     task.set_parameter("confidence_threshold", confidence)
     task.set_parameter("iou_threshold", 0.4)
-    task.set_parameter("allowed_classes", [0, 2, 3, 5, 6, 7, 8])
 
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(input_video)
 
     if not cap.isOpened():
-        print(f"Ошибка: Не удалось открыть видеофайл {video_path}")
+        print(f"Ошибка: Не удалось открыть видеофайл {input_video}")
         task.close()
         return
 
@@ -44,10 +43,10 @@ def main(cml_project_name: str, cml_task_name: str,
     
     # Для записи видео используем ИСХОДНЫЕ размеры
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (orig_width, orig_height))
+    out = cv2.VideoWriter(output_video, fourcc, fps, (orig_width, orig_height))
     
     if not out.isOpened():
-        print(f"Ошибка: Не удалось создать VideoWriter для {output_path}")
+        print(f"Ошибка: Не удалось создать VideoWriter для {output_video}")
         cap.release()
         task.close()
         return
@@ -57,7 +56,9 @@ def main(cml_project_name: str, cml_task_name: str,
     color_red = (0, 0, 255)
     color_yellow = (0, 255, 255)
 
-    allowed_indices = {0, 2, 3, 5, 6, 7, 8}  # Фильтрация классов автомобилей
+    classes_statistics = [{"name":"person", "count":0}, {"name":"car", "count":0}]
+    classes_indexes = {0, 2, 3, 5, 6, 7, 8}  # Фильтрация классов всех автомобилей
+    task.set_parameter("allowed_classes", classes_indexes)
 
     frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_count = 0
@@ -91,13 +92,18 @@ def main(cml_project_name: str, cml_task_name: str,
         if results[0].boxes.id is not None:
             for i, box in enumerate(results[0].boxes):
                 conf = box.conf[0]
-                if int(box.cls[0]) in allowed_indices and conf > confidence:
+                class_index = int(box.cls[0])
+                if class_index in classes_indexes and conf > confidence:
                     objects_in_frame += 1
-                    xyxy = box.xyxy[0]
-                    conf = box.conf[0]
                     class_name = results[0].names[int(box.cls[0])]
-                    obj_id = int(results[0].boxes.id[i])  # Получаем ID объекта
+                    obj_id = int(results[0].boxes.id[i])  # Получаем ID распознанного объекта
                     label = f'{class_name} {obj_id}'
+                    xyxy = box.xyxy[0]
+                    if class_index == 0:
+                        classes_statistics[0]["count"] +=1
+                    else:
+                        classes_statistics[1]["count"] +=1
+
 
                     # Добавляем ID в множество уникальных объектов
                     unique_object_ids.add(obj_id)
@@ -226,17 +232,21 @@ def main(cml_project_name: str, cml_task_name: str,
     )
 
     # Сохраняем итоговую статистику
-    # task.get_logger().report_single_value("Всего фреймов", frame_count)
+    task.get_logger().report_single_value("Всего фреймов", frame_count)
     task.get_logger().report_single_value("Всего объектов на всех фреймах", total_objects_detected)
     # task.get_logger().report_single_value("Среднее объектов на фрейм", total_objects_detected / max(frame_count, 1))
     task.get_logger().report_single_value("Трекируемых объектов", len(unique_object_ids))
+    
+    # Статистика по категориям
+    for cat_info in classes_statistics:
+        task.get_logger().report_single_value( f"Объекты категории {cat_info['name']}", cat_info['count'])
     
     # Логируем распределение confidence по диапазонам
     for i, label in enumerate(confidence_labels):
         task.get_logger().report_single_value(f"Объекты в диапазоне {label}", confidence_distribution[i])
     
     # Загружаем обработанное видео как артефакт
-    task.upload_artifact("processed_video", output_path)
+    task.upload_artifact("processed_video", output_video)
     
     # Выводим статистику по confidence
     print("\nРаспределение объектов по confidence:")
@@ -244,7 +254,7 @@ def main(cml_project_name: str, cml_task_name: str,
         percent = (confidence_distribution[i]/max(total_objects_detected, 1)*100)
         print(f"{label}: {confidence_distribution[i]} объектов ({percent:.2f}%)")
     
-    print(f"\nОбработанное видео с трекингом сохранено в {output_path}")
+    print(f"\nОбработанное видео с трекингом сохранено в {output_video}")
     print(f"Всего обработано фреймов: {frame_count}")
     print(f"Всего обнаружено объектов: {total_objects_detected}")
     print(f"Уникальных объектов отслежено: {len(unique_object_ids)}")
@@ -252,50 +262,41 @@ def main(cml_project_name: str, cml_task_name: str,
     task.close()
 
 if __name__ == "__main__":
-    cml_project_name = "ICIE Detection Project"
-    cml_project_name = "TEST Detection Project"
-    model_name = "yolov8n"
+    cml_project_name = "ICIE Detection Project New"
+    model_name = "yolo12x"
     confidence = 0.5
-    # input_names = [ 
-    #     "out-corrupt-spb_zagorodny_proezd_001-brightness-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-zoom_blur-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-defocus_blur-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-gaussian_noise-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-impulse_noise-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-jpeg_compression-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-saturate-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-shot_noise-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-spatter-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-speckle_noise-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-motion_blur-s5",
-    #     "out-corrupt-spb_zagorodny_proezd_001-contrast-s5"        
-    # ]
+
+    current_file = Path(__file__).resolve()
+    path_input = current_file.parent / "data" / "input" / "001"
+    # файлы из папки 
+    all_files = os.listdir(path_input)
+    # убираем расширение из имен
+    input_names = [os.path.splitext(f)[0] for f in all_files if f.endswith('.mp4')]
+
     # input_names = ["spb_dvorzovy_most_001", "spb_gostiny_dvor_001", "spb_gostiny_dvor_002", "spb_nevsky_annichkov_most_001", "spb_nevsky_annichkov_most_002", "spb_zagorodny_proezd_001"]
-    input_names = ["spb_zagorodny_proezd_001"]
+    # input_names = ["spb-cam1-short-001"]
     
-    tag_name = "spb_zagorodny_proezd_001"
-    corruption_types = ["brightness", "zoom_blur", "defocus_blur", "gaussian_noise", 
-                       "impulse_noise", "jpeg_compression", "saturate", "shot_noise", 
-                       "spatter", "speckle_noise", "motion_blur", "contrast"]
+    corruption_types = [] #["brightness", "zoom_blur", "defocus_blur", "gaussian_noise", "impulse_noise", "jpeg_compression", "saturate", "shot_noise", "spatter", "speckle_noise", "motion_blur", "contrast"]
     
     for input_name in input_names:
         time_start = datetime.now()
         date_stamp = time_start.strftime("%Y-%m-%d_%H-%M-%S")
         output_name = f"out-{input_name}-{model_name}-conf-{confidence}_{date_stamp}"
         
-        # Извлекаем corruption_type из имени файла
-        for corruption_type in corruption_types:
-            if corruption_type in input_name:
-                cml_task_name = f"{tag_name}-{corruption_type}"
-                break
-        else:
-            cml_task_name = f"{tag_name}-original"
+        cml_task_name = f"{input_name}"
+        # # Извлекаем corruption_type из имени файла
+        # for corruption_type in corruption_types:
+        #     if corruption_type in input_name:
+        #         cml_task_name = f"{input_name}-{corruption_type}"
+        #         break
+        # else:
+        #     cml_task_name = f"{input_name}-original"
         
         main(cml_project_name, 
              cml_task_name, 
              model_name, 
-             f"{input_name}.mp4", 
-             f"{output_name}.mp4", 
+             f'{path_input}/{input_name}.mp4', 
+             f'data/output/001/{output_name}.mp4', 
              confidence, 
              date_stamp
              )
