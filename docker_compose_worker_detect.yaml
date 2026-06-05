@@ -1,0 +1,34 @@
+version: "3.6"
+
+services:
+# запуск ClearML. docker-compose из проекта clearml
+# убедиться что сервис agent-services поднят
+
+  clearml-worker:
+    image: allegroai/clearml-agent:latest
+    container_name: clearml-worker-detection
+    restart: unless-stopped
+    networks:
+      - backend
+    environment:
+      - CLEARML_WORKER_NAME=clearml_worker_detection
+      - CLEARML_AGENT_DEFAULT_BASE_DOCKER=python:3.8-slim
+      - CLEARML_AGENT_QUEUES=default
+      - CLEARML_AGENT_DAEMON_LOG_FILE=
+    volumes:
+      - D:/Projects/git-practice/odnn15/config/clearml.conf:/root/clearml.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - clearml-pip-cache:/root/.cache/pip
+      - clearml-apt-cache:/var/cache/apt/archives
+      - clearml-vcs-cache:/root/.clearml/vcs-cache
+    command: clearml-agent daemon --queue default
+
+volumes:
+  clearml-pip-cache:
+  clearml-apt-cache:
+  clearml-vcs-cache:
+
+networks:
+  backend:
+    external: true
+    name: clearml_backend

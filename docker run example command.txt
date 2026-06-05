@@ -1,0 +1,1 @@
+docker run --name image-filter2 --network clearml_frontend --network clearml_backend -v $(pwd)/clearml.conf:/root/clearml.conf:ro mirror-filters:1.0.2 clearml-agent execute --id ca89e08789384c5bac7c42cf35122d0c

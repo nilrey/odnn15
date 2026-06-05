@@ -46,7 +46,7 @@ def add_gaussian_blur_and_noise(input_video, output_video, blur_kernel=(5,5), no
     print(f"Обработка завершена! Результат сохранен в: {output_video}")
 
 if __name__ == "__main__":
-    VIDEO_FILE_NAME = "cars_1"
+    VIDEO_FILE_NAME = "cars_1_1"
     NOISE = 0
     BLUR_SIZE = 15
     input_file = f'data/input/{VIDEO_FILE_NAME}.mp4'  

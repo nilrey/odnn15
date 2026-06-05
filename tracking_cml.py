@@ -15,15 +15,33 @@ def main(cml_project_name: str, cml_task_name: str,
         task_name=cml_task_name,
         task_type=Task.TaskTypes.inference
     )
-    
-    model = YOLO(f'models/{model_name}.pt')
 
-    # Устанавливаем параметры задачи
+    # Получаем параметры из ClearML User Properties (с дефолтными значениями)
+    # Обязательные параметры
+    model_name = task.get_parameter("model_name", default=model_name)
+    confidence = task.get_parameter("confidence", default=confidence)
+    iou_threshold = task.get_parameter("iou_threshold", default=0.4)
+    classes_indexes = task.get_parameter("classes_indexes", default=[0, 2, 3, 5, 6, 7, 8])
+    input_video = task.get_parameter("input_video", default=input_video)
+    output_video = task.get_parameter("output_video", default=output_video)
+
+    # Опциональные параметры
+    model_size_multiplier = task.get_parameter("model_size_multiplier", default=32)
+    console_log_interval = task.get_parameter("console_log_interval", default=10)
+
+    # Пути к директориям
+    models_dir = task.get_parameter("models_dir", default="models")
+    data_input_dir = task.get_parameter("data_input_dir", default="data/input/006")
+    data_output_dir = task.get_parameter("data_output_dir", default="data/output/006")
+
+    model = YOLO(f'{models_dir}/{model_name}.pt')
+
+    # Устанавливаем параметры задачи для отслеживания
     task.set_parameter("model", model_name)
     task.set_parameter("input_video", input_video)
     task.set_parameter("output_video", output_video)
     task.set_parameter("confidence_threshold", confidence)
-    task.set_parameter("iou_threshold", 0.4)
+    task.set_parameter("iou_threshold", iou_threshold)
 
     cap = cv2.VideoCapture(input_video)
 
@@ -37,9 +55,9 @@ def main(cml_project_name: str, cml_task_name: str,
     orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
-    # Вычисляем размер для модели (кратный 32)
+    # Вычисляем размер для модели (кратный model_size_multiplier)
     # YOLO обычно использует высоту как основной параметр
-    model_size = 32 * math.ceil(orig_height / 32)
+    model_size = model_size_multiplier * math.ceil(orig_height / model_size_multiplier)
     
     # Для записи видео используем ИСХОДНЫЕ размеры
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -51,14 +69,11 @@ def main(cml_project_name: str, cml_task_name: str,
         task.close()
         return
 
-    color_blue = (255, 0, 0)
-    color_green = (0, 255, 0)
-    color_red = (0, 0, 255)
     color_yellow = (0, 255, 255)
 
     classes_statistics = [{"name":"person", "count":0}, {"name":"car", "count":0}]
-    classes_indexes = {0, 2, 3, 5, 6, 7, 8}  # Фильтрация классов всех автомобилей
-    task.set_parameter("allowed_classes", classes_indexes)
+    classes_indexes = set(classes_indexes)  # Конвертируем список в множество для фильтрации классов
+    task.set_parameter("allowed_classes", list(classes_indexes))
 
     frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_count = 0
@@ -97,7 +112,8 @@ def main(cml_project_name: str, cml_task_name: str,
                     objects_in_frame += 1
                     class_name = results[0].names[int(box.cls[0])]
                     obj_id = int(results[0].boxes.id[i])  # Получаем ID распознанного объекта
-                    label = f'{class_name} {obj_id}'
+                    conf_proc = math.ceil(conf*100)
+                    label = f'{class_name} {obj_id}: {conf_proc}%'
                     xyxy = box.xyxy[0]
                     if class_index == 0:
                         classes_statistics[0]["count"] +=1
@@ -179,7 +195,7 @@ def main(cml_project_name: str, cml_task_name: str,
         frame_count += 1
         
         # Периодический вывод в консоль для отладки
-        if frame_count % 10 == 0:  # Каждые 30 фреймов
+        if frame_count % console_log_interval == 0:
             print(f"Фрейм {frame_count} из {frames} ")
     
     cap.release()
@@ -188,7 +204,7 @@ def main(cml_project_name: str, cml_task_name: str,
 
     # После завершения видео - логируем PLOTS
     if object_counts:
-        # Гистограмма распределения объектов на кадре
+        # гистограмма распределения объектов на кадре
         Logger.current_logger().report_histogram(
             title="Распознанные объекты",
             series=f"Количество объектов на фрейме - {model_name}",
@@ -197,7 +213,7 @@ def main(cml_project_name: str, cml_task_name: str,
             yaxis="Номер фрейма"
         )
         
-        # Гистограмма уникальных объектов
+        # гистограмма уникальных объектов
         if unique_objects_cumulative:
             Logger.current_logger().report_histogram(
                 title="Трекирование объектов",
@@ -207,7 +223,7 @@ def main(cml_project_name: str, cml_task_name: str,
                 yaxis="Трекируемые объекты"
             )
         
-        # Гистограмма стабильности трекинга
+        # гистограмма трекинга
         if frame_changes:
             Logger.current_logger().report_histogram(
                 title="Анализ стабильности трекинга", 
@@ -262,42 +278,46 @@ def main(cml_project_name: str, cml_task_name: str,
     task.close()
 
 if __name__ == "__main__":
-    cml_project_name = "ICIE Detection Project New"
-    model_name = "yolo12x"
-    confidence = 0.5
+    # Инициализируем временную задачу для получения параметров из ClearML
+    temp_task = Task.init(
+        project_name="ICIE Detection Project New",
+        task_name="People and Cars Detection",
+        task_type=Task.TaskTypes.inference
+    )
+
+    # Получаем параметры из ClearML User Properties
+    cml_project_name = temp_task.get_parameter("cml_project_name", default="ICIE Detection Project New")
+    model_name = temp_task.get_parameter("model_name", default="yolo12x")
+    confidence = temp_task.get_parameter("confidence", default=0.5)
+    data_input_dir = temp_task.get_parameter("data_input_dir", default="data/input/006")
+    data_output_dir = temp_task.get_parameter("data_output_dir", default="data/output/006")
+
+    temp_task.close()
 
     current_file = Path(__file__).resolve()
-    path_input = current_file.parent / "data" / "input" / "001"
-    # файлы из папки 
+    path_input = current_file.parent / data_input_dir
+
     all_files = os.listdir(path_input)
-    # убираем расширение из имен
     input_names = [os.path.splitext(f)[0] for f in all_files if f.endswith('.mp4')]
 
     # input_names = ["spb_dvorzovy_most_001", "spb_gostiny_dvor_001", "spb_gostiny_dvor_002", "spb_nevsky_annichkov_most_001", "spb_nevsky_annichkov_most_002", "spb_zagorodny_proezd_001"]
     # input_names = ["spb-cam1-short-001"]
     
-    corruption_types = [] #["brightness", "zoom_blur", "defocus_blur", "gaussian_noise", "impulse_noise", "jpeg_compression", "saturate", "shot_noise", "spatter", "speckle_noise", "motion_blur", "contrast"]
+    # corruption_types = ["brightness", "zoom_blur", "defocus_blur", "gaussian_noise", "impulse_noise", "jpeg_compression", "saturate", "shot_noise", "spatter", "speckle_noise", "motion_blur", "contrast"]
     
     for input_name in input_names:
         time_start = datetime.now()
         date_stamp = time_start.strftime("%Y-%m-%d_%H-%M-%S")
         output_name = f"out-{input_name}-{model_name}-conf-{confidence}_{date_stamp}"
-        
+
         cml_task_name = f"{input_name}"
-        # # Извлекаем corruption_type из имени файла
-        # for corruption_type in corruption_types:
-        #     if corruption_type in input_name:
-        #         cml_task_name = f"{input_name}-{corruption_type}"
-        #         break
-        # else:
-        #     cml_task_name = f"{input_name}-original"
-        
-        main(cml_project_name, 
-             cml_task_name, 
-             model_name, 
-             f'{path_input}/{input_name}.mp4', 
-             f'data/output/001/{output_name}.mp4', 
-             confidence, 
+
+        main(cml_project_name,
+             cml_task_name,
+             model_name,
+             f'{path_input}/{input_name}.mp4',
+             f'{data_output_dir}/{output_name}.mp4',
+             confidence,
              date_stamp
              )
         print(f'Время работы: {datetime.now() - time_start} сек.')
