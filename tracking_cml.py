@@ -1,3 +1,18 @@
+"""
+Назначение: обработка видео файлов. Выбор объектов - люди, машины. Сохранение в ClearML метрик: 
+    количество объектов на кадре,
+    количество треков на видео
+    распредение confidence распознанных объектов в диапазоне от 0-100 с шагом в 10 
+Cохранение обработанного видео с визуальными bounding boxes
+
+Параметры ClearML проекта: 
+    Название проекта - задается поумолчанию в project_name в блоке "if main"
+    Название задачи -  задается поумолчанию в task_name в блоке "if main"
+
+Запуск:
+    отдельным скриптом: "python tracking_cml.py"
+
+"""
 import os
 from pathlib import Path
 import cv2
@@ -207,7 +222,7 @@ def main(cml_project_name: str, cml_task_name: str,
         # гистограмма распределения объектов на кадре
         Logger.current_logger().report_histogram(
             title="Распознанные объекты",
-            series=f"Количество объектов на фрейме - {model_name}",
+            series=f"Количество объектов на фрейме",
             values=object_counts,
             xaxis="Количество объектов",
             yaxis="Номер фрейма"
@@ -217,7 +232,7 @@ def main(cml_project_name: str, cml_task_name: str,
         if unique_objects_cumulative:
             Logger.current_logger().report_histogram(
                 title="Трекирование объектов",
-                series=f"Трекируемые объекты - {model_name}",
+                series=f"Трекируемые объекты",
                 values=unique_objects_cumulative,
                 xaxis="Номер фрейма",
                 yaxis="Трекируемые объекты"
@@ -227,7 +242,7 @@ def main(cml_project_name: str, cml_task_name: str,
         if frame_changes:
             Logger.current_logger().report_histogram(
                 title="Анализ стабильности трекинга", 
-                series=f"Изменения между фреймами - {model_name}",
+                series=f"Изменения между фреймами",
                 values=frame_changes,
                 xaxis="Изменения в количестве объектов", 
                 yaxis="Частота"
@@ -239,12 +254,26 @@ def main(cml_project_name: str, cml_task_name: str,
     # Логируем распределение confidence
     Logger.current_logger().report_histogram(
         title="Распределение объектов по уровням confidence",
-        series=f"Распределение confidence - {model_name}",
+        series=f"Распределение confidence",
         iteration=0,
         xlabels=confidence_labels,
         values=confidence_distribution,
         yaxis="Количество объектов",
         xaxis="Диапазоны confidence"
+    )
+
+    # Распределение обнаруженных объектов по категориям
+    categories = [cat["name"] for cat in classes_statistics]
+    counts = [cat["count"] for cat in classes_statistics]
+    
+    Logger.current_logger().report_histogram(
+        title="Распределение обнаруженных объектов по категориям",
+        series="Количество объектов",
+        iteration=0,
+        xlabels=categories,
+        values=counts,
+        yaxis="Количество объектов",
+        xaxis="Категория объекта"
     )
 
     # Сохраняем итоговую статистику
@@ -279,20 +308,25 @@ def main(cml_project_name: str, cml_task_name: str,
 
 if __name__ == "__main__":
     # Инициализируем временную задачу для получения параметров из ClearML
-    temp_task = Task.init(
-        project_name="ICIE Detection Project New",
-        task_name="People and Cars Detection",
-        task_type=Task.TaskTypes.inference
-    )
+    # project_name = "ICIE Detection Project New"
+    project_name = "ICIE Poison Model"
+    task_name="Original Yolo12x"
+    # model_default = "yolov8n_freeze_22_epoch_10_lr0_0-0001"
+    model_default = "yolo12x"
+    # temp_task = Task.init(
+    #     project_name=project_name,
+    #     task_name=task_name,
+    #     task_type=Task.TaskTypes.inference
+    # )
 
-    # Получаем параметры из ClearML User Properties
-    cml_project_name = temp_task.get_parameter("cml_project_name", default="ICIE Detection Project New")
-    model_name = temp_task.get_parameter("model_name", default="yolo12x")
-    confidence = temp_task.get_parameter("confidence", default=0.5)
-    data_input_dir = temp_task.get_parameter("data_input_dir", default="data/input/006")
-    data_output_dir = temp_task.get_parameter("data_output_dir", default="data/output/006")
+    # # Получаем параметры из ClearML User Properties
+    cml_project_name = project_name
+    model_name = model_default
+    confidence = 0.5
+    data_input_dir = "data/input/test_poison"
+    data_output_dir = "data/output/test_poison"
 
-    temp_task.close()
+    # temp_task.close()
 
     current_file = Path(__file__).resolve()
     path_input = current_file.parent / data_input_dir
@@ -310,7 +344,7 @@ if __name__ == "__main__":
         date_stamp = time_start.strftime("%Y-%m-%d_%H-%M-%S")
         output_name = f"out-{input_name}-{model_name}-conf-{confidence}_{date_stamp}"
 
-        cml_task_name = f"{input_name}"
+        cml_task_name = f"{task_name} (f:{input_name})"
 
         main(cml_project_name,
              cml_task_name,

@@ -3,3 +3,4 @@ venv/*
 data/*
 models/*
 __pycache__
+*.pt
